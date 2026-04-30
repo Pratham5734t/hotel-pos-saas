@@ -1,0 +1,218 @@
+// Hotel POS SaaS — Prisma schema
+// Multi-tenant: every domain row carries a tenantId. Use SQLite for local
+// development (zero-config) and switch the datasource to postgresql when
+// deploying.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Tenancy & users ----------
+
+model Tenant {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  type      String   @default("RESTAURANT") // RESTAURANT | LODGING | BOTH
+  modules   String   @default("{\"restaurant\":true,\"lodging\":false,\"bar\":false,\"banquet\":false}")
+  gstin     String?
+  address   String?
+  currency  String   @default("INR")
+  timezone  String   @default("Asia/Kolkata")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users        User[]
+  outlets      Outlet[]
+  categories   MenuCategory[]
+  menuItems    MenuItem[]
+  tables       DiningTable[]
+  orders       Order[]
+  integrations AggregatorIntegration[]
+  events       IntegrationEvent[]
+  counters     Counter[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  tenantId  String
+  email     String
+  name      String
+  role      String   @default("CASHIER") // OWNER | MANAGER | CASHIER | WAITER | KITCHEN
+  password  String
+  pin       String?
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email])
+}
+
+// ---------- Outlets, menu, tables ----------
+
+model Outlet {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  kind      String   @default("RESTAURANT") // RESTAURANT | BAR | BANQUET | ROOM_SERVICE
+  createdAt DateTime @default(now())
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tables DiningTable[]
+  items  MenuItem[]
+  orders Order[]
+}
+
+model MenuCategory {
+  id        String     @id @default(cuid())
+  tenantId  String
+  name      String
+  sortOrder Int        @default(0)
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items     MenuItem[]
+}
+
+model MenuItem {
+  id          String  @id @default(cuid())
+  tenantId    String
+  outletId    String?
+  categoryId  String
+  name        String
+  description String?
+  price       Float
+  taxRate     Float   @default(5)
+  hsnCode     String?
+  isVeg       Boolean @default(true)
+  available   Boolean @default(true)
+  imageUrl    String?
+  externalIds String? // JSON: { "zomato": "...", "swiggy": "..." }
+
+  tenant     Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outlet     Outlet?      @relation(fields: [outletId], references: [id])
+  category   MenuCategory @relation(fields: [categoryId], references: [id])
+  orderItems OrderItem[]
+}
+
+model DiningTable {
+  id       String  @id @default(cuid())
+  tenantId String
+  outletId String?
+  label    String
+  seats    Int     @default(2)
+  status   String  @default("VACANT") // VACANT | OCCUPIED | RESERVED | DIRTY
+
+  tenant Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outlet Outlet?  @relation(fields: [outletId], references: [id])
+  orders Order[]
+}
+
+// ---------- Orders ----------
+
+model Order {
+  id            String   @id @default(cuid())
+  tenantId      String
+  outletId      String?
+  number        Int
+  channel       String   @default("DINE_IN") // DINE_IN | TAKEAWAY | ROOM_SERVICE | ZOMATO | SWIGGY | DIRECT_ONLINE
+  status        String   @default("OPEN")    // OPEN | KOT_SENT | READY | SERVED | PAID | VOID
+  externalId    String?
+  externalRef   String?  // raw payload JSON
+  tableId       String?
+  customer      String?  // JSON: {name, phone, address}
+  notes         String?
+  subtotal      Float    @default(0)
+  taxTotal      Float    @default(0)
+  discount      Float    @default(0)
+  serviceCharge Float    @default(0)
+  total         Float    @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  closedAt      DateTime?
+
+  tenant   Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outlet   Outlet?      @relation(fields: [outletId], references: [id])
+  table    DiningTable? @relation(fields: [tableId], references: [id])
+  items    OrderItem[]
+  payments Payment[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([tenantId, channel])
+}
+
+model OrderItem {
+  id           String  @id @default(cuid())
+  orderId      String
+  menuItemId   String
+  name         String  // snapshot (menu item could be renamed later)
+  qty          Int     @default(1)
+  unitPrice    Float
+  taxRate      Float   @default(5)
+  modifiers    String? // JSON
+  note         String?
+  kotPrintedAt DateTime?
+
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id])
+}
+
+model Payment {
+  id        String   @id @default(cuid())
+  orderId   String
+  mode      String   // CASH | CARD | UPI | ROOM_CHARGE | WALLET | AGGREGATOR
+  amount    Float
+  reference String?
+  createdAt DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+// Per-tenant invoice / order numbering
+model Counter {
+  tenantId String
+  scope    String  // e.g. "ORDER"
+  value    Int     @default(0)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, scope])
+}
+
+// ---------- Aggregator integration ----------
+
+model AggregatorIntegration {
+  id            String   @id @default(cuid())
+  tenantId      String
+  provider      String   // ZOMATO | SWIGGY | MOCK
+  enabled       Boolean  @default(false)
+  webhookSecret String
+  config        String?  // JSON: store-id, outlet mapping, menu mapping, etc.
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, provider])
+}
+
+model IntegrationEvent {
+  id         String   @id @default(cuid())
+  tenantId   String
+  provider   String
+  direction  String   // IN | OUT
+  kind       String   // ORDER_CREATED | STATUS_PUSH | MENU_PUSH | ERROR | ...
+  externalId String?
+  payload    String   // JSON
+  ok         Boolean  @default(true)
+  message    String?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, provider, createdAt])
+}
