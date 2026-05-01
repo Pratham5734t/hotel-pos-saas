@@ -67,15 +67,20 @@ export default function SignupPage() {
         password,
       }),
     });
+    const body = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      tenantSlug?: string;
+      error?: string;
+    };
     if (!res.ok) {
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
-      setError(j.error ?? "Failed to create your hotel.");
+      setError(body.error ?? "Failed to create your hotel.");
       setSubmitting(false);
       return;
     }
     const signin = await signIn("credentials", {
       email: email.toLowerCase().trim(),
       password,
+      tenantSlug: body.tenantSlug ?? "",
       redirect: false,
     });
     setSubmitting(false);

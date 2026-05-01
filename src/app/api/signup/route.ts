@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { generateSlug } from "@/lib/utils";
 
@@ -33,11 +34,6 @@ export async function POST(req: Request) {
   const data = parsed.data;
 
   const slugBase = generateSlug(data.hotelName) || "hotel";
-  let slug = slugBase;
-  let i = 1;
-  while (await prisma.tenant.findUnique({ where: { slug } })) {
-    slug = `${slugBase}-${i++}`;
-  }
 
   const tenantType =
     data.modules.restaurant && data.modules.lodging
@@ -48,30 +44,69 @@ export async function POST(req: Request) {
 
   const hash = await bcrypt.hash(data.password, 10);
 
-  const tenant = await prisma.tenant.create({
-    data: {
-      slug,
-      name: data.hotelName,
-      type: tenantType,
-      modules: JSON.stringify(data.modules),
-      gstin: data.gstin,
-      address: data.address,
-      outlets: {
-        create: data.modules.restaurant
-          ? [{ name: "Main Kitchen", kind: "RESTAURANT" }]
-          : [],
-      },
-      users: {
-        create: {
-          email: data.email.toLowerCase().trim(),
-          name: data.ownerName,
-          password: hash,
-          role: "OWNER",
+  // Retry loop: handles the rare race where two concurrent signups pick the
+  // same slug. On P2002 we suffix and try again, capped at 10 attempts.
+  let tenant: Awaited<ReturnType<typeof prisma.tenant.create>> | null = null;
+  let slug = slugBase;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      tenant = await prisma.tenant.create({
+        data: {
+          slug,
+          name: data.hotelName,
+          type: tenantType,
+          modules: JSON.stringify(data.modules),
+          gstin: data.gstin,
+          address: data.address,
+          outlets: {
+            create: data.modules.restaurant
+              ? [{ name: "Main Kitchen", kind: "RESTAURANT" }]
+              : [],
+          },
+          users: {
+            create: {
+              email: data.email.toLowerCase().trim(),
+              name: data.ownerName,
+              password: hash,
+              role: "OWNER",
+            },
+          },
         },
+      });
+      break;
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === "P2002"
+      ) {
+        const target = (err.meta?.target as string[] | string | undefined) ?? "";
+        const targetStr = Array.isArray(target) ? target.join(",") : target;
+        if (targetStr.includes("email")) {
+          return NextResponse.json(
+            {
+              error:
+                "An account with this email already exists for this hotel.",
+            },
+            { status: 409 },
+          );
+        }
+        // Slug collision — suffix and retry.
+        slug = `${slugBase}-${attempt + 1}`;
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  if (!tenant) {
+    return NextResponse.json(
+      {
+        error:
+          "Could not create your hotel — slug is too contended. Try a more unique hotel name.",
       },
-    },
-    include: { users: true },
-  });
+      { status: 409 },
+    );
+  }
 
   // seed a tiny default menu so the POS isn't empty on first login
   if (data.modules.restaurant) {
