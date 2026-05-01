@@ -22,84 +22,121 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   return NextResponse.json(order);
 }
 
+// Allowed forward transitions. The lifecycle is:
+//   OPEN → KOT_SENT → READY → SERVED → PAID
+// VOID is reachable from any non-terminal state. PAID and VOID are terminal.
+const ALLOWED: Record<string, ReadonlyArray<string>> = {
+  OPEN: ["KOT_SENT", "READY", "SERVED", "PAID", "VOID"],
+  KOT_SENT: ["READY", "SERVED", "PAID", "VOID"],
+  READY: ["SERVED", "PAID", "VOID"],
+  SERVED: ["PAID", "VOID"],
+  PAID: [],
+  VOID: [],
+};
+
+// Reverse map: which "from" statuses are allowed to transition INTO `to`.
+const PREDECESSORS: Record<string, ReadonlyArray<string>> = (() => {
+  const out: Record<string, string[]> = {};
+  for (const [from, tos] of Object.entries(ALLOWED)) {
+    for (const to of tos) {
+      (out[to] ??= []).push(from);
+    }
+  }
+  return out;
+})();
+
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const { tenantId, role } = await requireTenant();
   if (!canTakeOrders(role) && role !== "KITCHEN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  const order = await prisma.order.findFirst({
-    where: { id: params.id, tenantId },
-  });
-  if (!order) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const parsed = Patch.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid input" }, { status: 400 });
   }
 
-  // Status transition guard. The lifecycle is:
-  //   OPEN → KOT_SENT → READY → SERVED → PAID
-  // VOID is a terminal state; PAID is also terminal (no further updates).
-  // Same-state writes for {PAID, VOID} are rejected so we never insert a
-  // duplicate Payment row on a retry.
-  const ALLOWED: Record<string, ReadonlyArray<string>> = {
-    OPEN: ["KOT_SENT", "READY", "SERVED", "PAID", "VOID"],
-    KOT_SENT: ["READY", "SERVED", "PAID", "VOID"],
-    READY: ["SERVED", "PAID", "VOID"],
-    SERVED: ["PAID", "VOID"],
-    PAID: [],
-    VOID: [],
-  };
   const next = parsed.data.status;
-  if (next && next !== order.status) {
-    const allowed = ALLOWED[order.status] ?? [];
-    if (!allowed.includes(next)) {
-      return NextResponse.json(
-        { error: `Cannot move order from ${order.status} to ${next}.` },
-        { status: 409 },
-      );
-    }
-  }
-  if (next && next === order.status && (next === "PAID" || next === "VOID")) {
-    return NextResponse.json(
-      { error: `Order is already ${next}.` },
-      { status: 409 },
-    );
-  }
-
   const data: Record<string, unknown> = {};
-  if (parsed.data.status) {
-    data.status = parsed.data.status;
-    if (parsed.data.status === "PAID") data.closedAt = new Date();
+  if (next) {
+    data.status = next;
+    if (next === "PAID") data.closedAt = new Date();
   }
   if (parsed.data.notes !== undefined) data.notes = parsed.data.notes;
 
-  await prisma.$transaction(async (tx) => {
-    await tx.order.update({ where: { id: order.id }, data });
-    if (parsed.data.status === "PAID") {
-      await tx.payment.create({
-        data: {
-          orderId: order.id,
-          mode: parsed.data.paymentMode ?? "CASH",
-          amount: order.total,
-        },
+  // Single transaction: read the order, then either
+  //   (a) atomically transition with a status precondition (updateMany), or
+  //   (b) plain update for notes-only PATCHes.
+  // Using updateMany with a status filter closes the TOCTOU window: two
+  // concurrent PAID requests can both see status=SERVED, but only one will
+  // satisfy `WHERE status = 'SERVED'` once the first transaction commits.
+  type Result =
+    | { kind: "ok"; channel: string; number: number; total: number; externalId: string | null }
+    | { kind: "notfound" }
+    | { kind: "conflict"; message: string };
+
+  const result = await prisma.$transaction<Result>(async (tx) => {
+    const cur = await tx.order.findFirst({ where: { id: params.id, tenantId } });
+    if (!cur) return { kind: "notfound" };
+
+    if (next) {
+      const predecessors = PREDECESSORS[next] ?? [];
+      if (!predecessors.includes(cur.status)) {
+        const message =
+          cur.status === next
+            ? `Order is already ${next}.`
+            : `Cannot move order from ${cur.status} to ${next}.`;
+        return { kind: "conflict", message };
+      }
+
+      const upd = await tx.order.updateMany({
+        where: { id: cur.id, tenantId, status: cur.status },
+        data,
       });
+      if (upd.count === 0) {
+        // A concurrent PATCH won the race; reject this one.
+        return { kind: "conflict", message: "Order status changed during update; please retry." };
+      }
+
+      if (next === "PAID") {
+        await tx.payment.create({
+          data: {
+            orderId: cur.id,
+            mode: parsed.data.paymentMode ?? "CASH",
+            amount: cur.total,
+          },
+        });
+      }
+    } else if (Object.keys(data).length > 0) {
+      await tx.order.update({ where: { id: cur.id }, data });
     }
+
+    return {
+      kind: "ok",
+      channel: cur.channel,
+      number: cur.number,
+      total: cur.total,
+      externalId: cur.externalId,
+    };
   });
 
-  publish(tenantId, "orders", "order:update", { id: order.id, number: order.number });
-  publish(tenantId, "kot", "kot:update", { id: order.id, number: order.number });
+  if (result.kind === "notfound") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (result.kind === "conflict") {
+    return NextResponse.json({ error: result.message }, { status: 409 });
+  }
 
-  // Push status to aggregator if it's an aggregator order and going through lifecycle
-  if (
-    parsed.data.status &&
-    (order.channel === "ZOMATO" || order.channel === "SWIGGY" || order.channel === "MOCK")
-  ) {
+  publish(tenantId, "orders", "order:update", { id: params.id, number: result.number });
+  publish(tenantId, "kot", "kot:update", { id: params.id, number: result.number });
+
+  // Push status to aggregator if it's an aggregator order and we just changed status.
+  if (next && (result.channel === "ZOMATO" || result.channel === "SWIGGY" || result.channel === "MOCK")) {
     const integration = await prisma.aggregatorIntegration.findUnique({
-      where: { tenantId_provider: { tenantId, provider: order.channel } },
+      where: { tenantId_provider: { tenantId, provider: result.channel } },
     });
-    const provider = getProvider(order.channel);
-    if (provider && integration && order.externalId) {
+    const provider = getProvider(result.channel);
+    if (provider && integration && result.externalId) {
       const map: Record<string, "ACCEPTED" | "FOOD_READY" | "DISPATCHED" | "DELIVERED" | "REJECTED"> = {
         KOT_SENT: "ACCEPTED",
         READY: "FOOD_READY",
@@ -107,28 +144,28 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         PAID: "DELIVERED",
         VOID: "REJECTED",
       };
-      const status = map[parsed.data.status];
+      const status = map[next];
       if (status) {
         const cfg = integration.config ? JSON.parse(integration.config) : {};
-        const result = await provider.pushStatus({
-          externalId: order.externalId,
+        const pushed = await provider.pushStatus({
+          externalId: result.externalId,
           status,
           config: cfg,
         });
         await prisma.integrationEvent.create({
           data: {
             tenantId,
-            provider: order.channel,
+            provider: result.channel,
             direction: "OUT",
             kind: "STATUS_PUSH",
-            externalId: order.externalId,
-            payload: JSON.stringify({ status, orderId: order.id }),
-            ok: result.ok,
-            message: result.message,
+            externalId: result.externalId,
+            payload: JSON.stringify({ status, orderId: params.id }),
+            ok: pushed.ok,
+            message: pushed.message,
           },
         });
         publish(tenantId, "integration", "event", {
-          provider: order.channel,
+          provider: result.channel,
           status,
         });
       }
