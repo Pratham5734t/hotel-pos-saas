@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { publish } from "@/lib/sse";
 import { nextOrderNumber } from "@/lib/order-numbers";
@@ -18,6 +19,33 @@ export async function ingestProviderOrder(args: {
   order: ProviderOrder;
 }) {
   const { tenantId, provider, order } = args;
+
+  // Idempotency: aggregator platforms re-deliver webhooks on timeouts. If
+  // we've already imported this externalId for this tenant, return the
+  // existing order rather than creating a duplicate KOT/invoice/payment.
+  if (order.externalId) {
+    const existing = await prisma.order.findUnique({
+      where: {
+        tenantId_externalId: { tenantId, externalId: order.externalId },
+      },
+      include: { items: true },
+    });
+    if (existing) {
+      await prisma.integrationEvent.create({
+        data: {
+          tenantId,
+          provider,
+          direction: "IN",
+          kind: "ORDER_DUPLICATE",
+          externalId: order.externalId,
+          payload: JSON.stringify(order.raw).slice(0, 60_000),
+          ok: true,
+          message: `Duplicate webhook ignored — order #${existing.number} already imported.`,
+        },
+      });
+      return existing;
+    }
+  }
 
   // Resolve menu items: match by externalIds JSON containing this provider's id
   const allItems = await prisma.menuItem.findMany({
@@ -73,28 +101,69 @@ export async function ingestProviderOrder(args: {
 
   // Allocate the order number and create the order in the SAME transaction so
   // a failure rolls back the counter — no gaps in the GST invoice sequence.
-  const created = await prisma.$transaction(async (tx) => {
-    const orderNumber = await nextOrderNumber(tx, tenantId);
-    return tx.order.create({
-      data: {
-        tenantId,
-        number: orderNumber,
-        channel: provider,
-        status: "KOT_SENT",
-        externalId: order.externalId,
-        externalRef: JSON.stringify(order.raw).slice(0, 60_000),
-        customer: order.customer ? JSON.stringify(order.customer) : null,
-        notes: order.notes,
-        subtotal: totals.subtotal,
-        taxTotal: totals.taxTotal,
-        total: totals.total,
-        discount: order.discount ?? 0,
-        serviceCharge: order.serviceCharge ?? 0,
-        items: { create: lines },
-      },
-      include: { items: true },
-    });
-  });
+  // Two concurrent webhook deliveries with the same externalId race here; the
+  // unique (tenantId, externalId) index guarantees at most one wins. The
+  // loser catches P2002 and returns the existing row.
+  const created = await (async () => {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const orderNumber = await nextOrderNumber(tx, tenantId);
+        return tx.order.create({
+          data: {
+            tenantId,
+            number: orderNumber,
+            channel: provider,
+            status: "KOT_SENT",
+            externalId: order.externalId,
+            externalRef: JSON.stringify(order.raw).slice(0, 60_000),
+            customer: order.customer ? JSON.stringify(order.customer) : null,
+            notes: order.notes,
+            subtotal: totals.subtotal,
+            taxTotal: totals.taxTotal,
+            total: totals.total,
+            discount: order.discount ?? 0,
+            serviceCharge: order.serviceCharge ?? 0,
+            items: { create: lines },
+          },
+          include: { items: true },
+        });
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === "P2002" &&
+        order.externalId
+      ) {
+        const existing = await prisma.order.findUnique({
+          where: {
+            tenantId_externalId: { tenantId, externalId: order.externalId },
+          },
+          include: { items: true },
+        });
+        if (existing) {
+          await prisma.integrationEvent.create({
+            data: {
+              tenantId,
+              provider,
+              direction: "IN",
+              kind: "ORDER_DUPLICATE",
+              externalId: order.externalId,
+              payload: JSON.stringify(order.raw).slice(0, 60_000),
+              ok: true,
+              message: `Duplicate webhook lost the race — order #${existing.number} already imported.`,
+            },
+          });
+          return { ...existing, _duplicate: true as const };
+        }
+      }
+      throw err;
+    }
+  })();
+
+  if ("_duplicate" in created) {
+    publish(tenantId, "orders", "order:new", { id: created.id, number: created.number });
+    return created;
+  }
 
   await prisma.integrationEvent.create({
     data: {

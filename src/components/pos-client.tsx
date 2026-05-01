@@ -164,7 +164,10 @@ export function POSClient({
                 key={c}
                 size="sm"
                 variant={channel === c ? "default" : "outline"}
-                onClick={() => setChannel(c)}
+                onClick={() => {
+                  setChannel(c);
+                  if (c !== "DINE_IN") setTableId(null);
+                }}
               >
                 {c.replace("_", " ")}
               </Button>

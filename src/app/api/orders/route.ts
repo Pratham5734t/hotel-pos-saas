@@ -84,9 +84,13 @@ export async function POST(req: Request) {
     { discount: discount ?? 0, serviceCharge: serviceCharge ?? 0 },
   );
 
-  if (tableId) {
+  // Tables only apply to dine-in. If the client sent a stale tableId after
+  // switching channel, drop it server-side rather than associating a
+  // takeaway/room-service order with a dining table.
+  const effectiveTableId = channel === "DINE_IN" ? tableId : null;
+  if (effectiveTableId) {
     const t = await prisma.diningTable.findFirst({
-      where: { id: tableId, tenantId },
+      where: { id: effectiveTableId, tenantId },
     });
     if (!t) return NextResponse.json({ error: "Invalid table" }, { status: 400 });
   }
@@ -106,7 +110,7 @@ export async function POST(req: Request) {
         number,
         channel,
         status,
-        tableId: tableId ?? undefined,
+        tableId: effectiveTableId ?? undefined,
         notes,
         subtotal: totals.subtotal,
         taxTotal: totals.taxTotal,

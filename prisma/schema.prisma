@@ -145,6 +145,10 @@ model Order {
   payments Payment[]
 
   @@unique([tenantId, number])
+  // Aggregator webhook idempotency: a (tenantId, externalId) pair must be
+  // unique. PostgreSQL treats NULLs as distinct in unique indexes, so manual
+  // POS orders (externalId IS NULL) are unaffected.
+  @@unique([tenantId, externalId])
   @@index([tenantId, status])
   @@index([tenantId, channel])
 }

@@ -22,7 +22,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid input" }, { status: 400 });
   }
-  if (parsed.data.config) {
+  if (parsed.data.config !== undefined) {
     try {
       JSON.parse(parsed.data.config);
     } catch {
