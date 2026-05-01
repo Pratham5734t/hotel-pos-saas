@@ -1,12 +1,19 @@
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireTenant } from "@/lib/tenant";
+import { canManageIntegrations } from "@/lib/roles";
 import { allProviders } from "@/lib/integrations/registry";
 import { IntegrationsManager } from "@/components/integrations-manager";
 
 export const dynamic = "force-dynamic";
 
 export default async function IntegrationsPage() {
-  const { tenantId } = await requireTenant();
+  const { tenantId, role } = await requireTenant();
+  // Webhook secrets are powerful: anyone holding one can POST forged orders to
+  // /api/webhooks/{provider}?tenant={slug} and inject items into the kitchen.
+  // Restrict the entire page (and therefore the secret) to roles that are
+  // already trusted to mutate integrations.
+  if (!canManageIntegrations(role)) redirect("/dashboard");
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   const integrations = await prisma.aggregatorIntegration.findMany({
     where: { tenantId },

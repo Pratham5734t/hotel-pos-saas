@@ -19,20 +19,33 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
-const NAV = [
+type Role = "OWNER" | "MANAGER" | "CASHIER" | "WAITER" | "KITCHEN";
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  primary?: boolean;
+  /** Roles allowed to see this link. Undefined = visible to all. */
+  roles?: ReadonlyArray<Role>;
+};
+
+const NAV: ReadonlyArray<NavItem> = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/pos", label: "POS", icon: Utensils, primary: true },
   { href: "/kot", label: "Kitchen", icon: ChefHat },
   { href: "/orders", label: "Orders", icon: ListOrdered },
   { href: "/menu", label: "Menu", icon: BookOpenText },
-  { href: "/integrations", label: "Integrations", icon: Webhook },
-  { href: "/reports", label: "Reports", icon: BarChart3 },
+  // Webhook secrets exposed on this page are sensitive — only managers see it.
+  { href: "/integrations", label: "Integrations", icon: Webhook, roles: ["OWNER", "MANAGER"] },
+  { href: "/reports", label: "Reports", icon: BarChart3, roles: ["OWNER", "MANAGER"] },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { data: session } = useSession();
+  const role = session?.user?.role as Role | undefined;
+  const navItems = NAV.filter((i) => !i.roles || (role && i.roles.includes(role)));
 
   return (
     <div className="min-h-screen flex bg-muted/30">
@@ -49,7 +62,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ) : null}
         </div>
         <nav className="flex-1 px-2 py-3 space-y-1 overflow-y-auto">
-          {NAV.map((item) => {
+          {navItems.map((item) => {
             const active = pathname === item.href || pathname?.startsWith(item.href + "/");
             return (
               <Link
@@ -96,7 +109,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
         <nav className="md:hidden border-b bg-card overflow-x-auto">
           <div className="flex gap-1 p-2 min-w-max">
-            {NAV.map((item) => {
+            {navItems.map((item) => {
               const active = pathname === item.href || pathname?.startsWith(item.href + "/");
               return (
                 <Link

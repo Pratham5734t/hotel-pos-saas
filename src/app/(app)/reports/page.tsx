@@ -1,7 +1,9 @@
+import { redirect } from "next/navigation";
 import { subDays } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { prisma } from "@/lib/db";
 import { requireTenant } from "@/lib/tenant";
+import { canViewReports } from "@/lib/roles";
 import { startOfTenantDay } from "@/lib/datetime";
 import { formatMoney } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +12,8 @@ import { Badge } from "@/components/ui/badge";
 export const dynamic = "force-dynamic";
 
 export default async function ReportsPage() {
-  const { tenantId } = await requireTenant();
+  const { tenantId, role } = await requireTenant();
+  if (!canViewReports(role)) redirect("/dashboard");
   const tenant = await prisma.tenant.findUnique({
     where: { id: tenantId },
     select: { timezone: true },

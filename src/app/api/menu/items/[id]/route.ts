@@ -46,6 +46,21 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
   }
   const item = await prisma.menuItem.findFirst({ where: { id: params.id, tenantId } });
   if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  // Hard-deleting an item that has been ordered would orphan OrderItem rows
+  // (the FK is required and defaults to onDelete: Restrict), losing GST
+  // invoice integrity. Return 400 with a useful hint so the manager can mark
+  // the item unavailable instead.
+  const orderItemCount = await prisma.orderItem.count({
+    where: { menuItemId: item.id },
+  });
+  if (orderItemCount > 0) {
+    return NextResponse.json(
+      {
+        error: `"${item.name}" has ${orderItemCount} historical order entries and can't be deleted. Mark it as unavailable to hide it from the POS instead.`,
+      },
+      { status: 400 },
+    );
+  }
   await prisma.menuItem.delete({ where: { id: item.id } });
   return NextResponse.json({ ok: true });
 }
