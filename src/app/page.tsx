@@ -1,101 +1,95 @@
-import Image from "next/image";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Utensils, Hotel, Webhook, Receipt, BarChart3, ShieldCheck } from "lucide-react";
 
-export default function Home() {
+export default function LandingPage() {
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <main className="min-h-screen">
+      <header className="border-b">
+        <div className="container flex h-16 items-center justify-between">
+          <div className="flex items-center gap-2 font-bold text-xl">
+            <Utensils className="h-6 w-6 text-primary" />
+            <span>Hotel POS</span>
+          </div>
+          <nav className="flex items-center gap-2">
+            <Link href="/login">
+              <Button variant="ghost">Sign in</Button>
+            </Link>
+            <Link href="/signup">
+              <Button>Create your hotel</Button>
+            </Link>
+          </nav>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
+      </header>
+
+      <section className="container py-24">
+        <div className="max-w-3xl">
+          <h1 className="text-5xl font-bold tracking-tight">
+            One POS for your hotel —{" "}
+            <span className="text-primary">restaurant, room service, online orders.</span>
+          </h1>
+          <p className="mt-6 text-lg text-muted-foreground">
+            Sign up, pick the modules you need, and start taking orders in minutes.
+            Built-in adapters for Zomato, Swiggy, and direct online ordering — with a
+            mock simulator so you can demo the full flow today.
+          </p>
+          <div className="mt-8 flex gap-3">
+            <Link href="/signup">
+              <Button size="lg">Get started — it&apos;s free</Button>
+            </Link>
+            <Link href="/login">
+              <Button size="lg" variant="outline">
+                I have an account
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <section className="container pb-24 grid gap-6 md:grid-cols-3">
+        {[
+          {
+            icon: Utensils,
+            title: "Restaurant POS",
+            body: "Touch-first order entry, KOT screen, table management, GST-correct billing, multi-payment.",
+          },
+          {
+            icon: Webhook,
+            title: "Aggregators",
+            body: "Zomato, Swiggy & direct-online orders flow into the same KOT. Mock simulator built-in.",
+          },
+          {
+            icon: Hotel,
+            title: "Universal & multi-tenant",
+            body: "Each hotel signs up, picks modules (restaurant, bar, banquet, lodging), and gets isolated data.",
+          },
+          {
+            icon: Receipt,
+            title: "Invoices & GST",
+            body: "Per-tenant invoice numbering, HSN, configurable tax rates, printable thermal receipts.",
+          },
+          {
+            icon: BarChart3,
+            title: "Reports",
+            body: "Daily Z-report, channel split (dine-in vs aggregator vs takeaway), item-wise sales.",
+          },
+          {
+            icon: ShieldCheck,
+            title: "Role-based access",
+            body: "Owner, Manager, Cashier, Waiter, Kitchen — each with the right screen and permissions.",
+          },
+        ].map((f) => (
+          <div key={f.title} className="rounded-lg border p-6">
+            <f.icon className="h-6 w-6 text-primary" />
+            <h3 className="mt-3 font-semibold">{f.title}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{f.body}</p>
+          </div>
+        ))}
+      </section>
+
+      <footer className="border-t py-6 text-center text-sm text-muted-foreground">
+        Hotel POS — open-source, MIT.
       </footer>
-    </div>
+    </main>
   );
 }
