@@ -49,8 +49,6 @@ export async function ingestProviderOrder(args: {
     );
   }
 
-  const orderNumber = await prisma.$transaction((tx) => nextOrderNumber(tx, tenantId));
-
   const lines = order.items.map((it) => {
     const matched =
       (it.externalId && externalMap.get(it.externalId)) ||
@@ -73,24 +71,29 @@ export async function ingestProviderOrder(args: {
     { discount: order.discount ?? 0, serviceCharge: order.serviceCharge ?? 0 },
   );
 
-  const created = await prisma.order.create({
-    data: {
-      tenantId,
-      number: orderNumber,
-      channel: provider,
-      status: "KOT_SENT",
-      externalId: order.externalId,
-      externalRef: JSON.stringify(order.raw).slice(0, 60_000),
-      customer: order.customer ? JSON.stringify(order.customer) : null,
-      notes: order.notes,
-      subtotal: totals.subtotal,
-      taxTotal: totals.taxTotal,
-      total: totals.total,
-      discount: order.discount ?? 0,
-      serviceCharge: order.serviceCharge ?? 0,
-      items: { create: lines },
-    },
-    include: { items: true },
+  // Allocate the order number and create the order in the SAME transaction so
+  // a failure rolls back the counter — no gaps in the GST invoice sequence.
+  const created = await prisma.$transaction(async (tx) => {
+    const orderNumber = await nextOrderNumber(tx, tenantId);
+    return tx.order.create({
+      data: {
+        tenantId,
+        number: orderNumber,
+        channel: provider,
+        status: "KOT_SENT",
+        externalId: order.externalId,
+        externalRef: JSON.stringify(order.raw).slice(0, 60_000),
+        customer: order.customer ? JSON.stringify(order.customer) : null,
+        notes: order.notes,
+        subtotal: totals.subtotal,
+        taxTotal: totals.taxTotal,
+        total: totals.total,
+        discount: order.discount ?? 0,
+        serviceCharge: order.serviceCharge ?? 0,
+        items: { create: lines },
+      },
+      include: { items: true },
+    });
   });
 
   await prisma.integrationEvent.create({
@@ -102,7 +105,7 @@ export async function ingestProviderOrder(args: {
       externalId: order.externalId,
       payload: JSON.stringify(order.raw).slice(0, 60_000),
       ok: true,
-      message: `Imported as order #${orderNumber}`,
+      message: `Imported as order #${created.number}`,
     },
   });
 

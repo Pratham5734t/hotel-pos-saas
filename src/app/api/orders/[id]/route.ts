@@ -37,6 +37,36 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ error: "Invalid input" }, { status: 400 });
   }
 
+  // Status transition guard. The lifecycle is:
+  //   OPEN → KOT_SENT → READY → SERVED → PAID
+  // VOID is a terminal state; PAID is also terminal (no further updates).
+  // Same-state writes for {PAID, VOID} are rejected so we never insert a
+  // duplicate Payment row on a retry.
+  const ALLOWED: Record<string, ReadonlyArray<string>> = {
+    OPEN: ["KOT_SENT", "READY", "SERVED", "PAID", "VOID"],
+    KOT_SENT: ["READY", "SERVED", "PAID", "VOID"],
+    READY: ["SERVED", "PAID", "VOID"],
+    SERVED: ["PAID", "VOID"],
+    PAID: [],
+    VOID: [],
+  };
+  const next = parsed.data.status;
+  if (next && next !== order.status) {
+    const allowed = ALLOWED[order.status] ?? [];
+    if (!allowed.includes(next)) {
+      return NextResponse.json(
+        { error: `Cannot move order from ${order.status} to ${next}.` },
+        { status: 409 },
+      );
+    }
+  }
+  if (next && next === order.status && (next === "PAID" || next === "VOID")) {
+    return NextResponse.json(
+      { error: `Order is already ${next}.` },
+      { status: 409 },
+    );
+  }
+
   const data: Record<string, unknown> = {};
   if (parsed.data.status) {
     data.status = parsed.data.status;

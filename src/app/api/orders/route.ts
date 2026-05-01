@@ -72,46 +72,50 @@ export async function POST(req: Request) {
     if (!t) return NextResponse.json({ error: "Invalid table" }, { status: 400 });
   }
 
-  const number = await prisma.$transaction((tx) => nextOrderNumber(tx, tenantId));
-
   const status = action === "bill" ? "PAID" : "KOT_SENT";
   const closedAt = action === "bill" ? new Date() : null;
   const kotPrintedAt = new Date();
 
-  const created = await prisma.order.create({
-    data: {
-      tenantId,
-      number,
-      channel,
-      status,
-      tableId: tableId ?? undefined,
-      notes,
-      subtotal: totals.subtotal,
-      taxTotal: totals.taxTotal,
-      total: totals.total,
-      discount: discount ?? 0,
-      serviceCharge: serviceCharge ?? 0,
-      closedAt,
-      items: {
-        create: items.map((i) => ({
-          menuItemId: i.menuItemId,
-          name: i.name,
-          qty: i.qty,
-          unitPrice: i.unitPrice,
-          taxRate: i.taxRate,
-          kotPrintedAt,
-        })),
+  // Allocate the order number and create the order in the SAME transaction so
+  // a failure during create rolls back the counter increment — no gaps in the
+  // invoice sequence (which doubles as the GST invoice number).
+  const created = await prisma.$transaction(async (tx) => {
+    const number = await nextOrderNumber(tx, tenantId);
+    return tx.order.create({
+      data: {
+        tenantId,
+        number,
+        channel,
+        status,
+        tableId: tableId ?? undefined,
+        notes,
+        subtotal: totals.subtotal,
+        taxTotal: totals.taxTotal,
+        total: totals.total,
+        discount: discount ?? 0,
+        serviceCharge: serviceCharge ?? 0,
+        closedAt,
+        items: {
+          create: items.map((i) => ({
+            menuItemId: i.menuItemId,
+            name: i.name,
+            qty: i.qty,
+            unitPrice: i.unitPrice,
+            taxRate: i.taxRate,
+            kotPrintedAt,
+          })),
+        },
+        payments:
+          action === "bill"
+            ? {
+                create: {
+                  mode: paymentMode ?? "CASH",
+                  amount: totals.total,
+                },
+              }
+            : undefined,
       },
-      payments:
-        action === "bill"
-          ? {
-              create: {
-                mode: paymentMode ?? "CASH",
-                amount: totals.total,
-              },
-            }
-          : undefined,
-    },
+    });
   });
 
   publish(tenantId, "orders", "order:new", { id: created.id, number: created.number });
