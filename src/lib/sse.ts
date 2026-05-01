@@ -49,7 +49,10 @@ export function sseStream(
   const stream = new ReadableStream({
     start(controller) {
       const enc = new TextEncoder();
+      // `closed` short-circuits further writes; `cleanedUp` makes cleanup
+      // idempotent without preventing it from running when send() trips first.
       let closed = false;
+      let cleanedUp = false;
       const send = (event: string, data: unknown) => {
         if (closed) return;
         const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -71,7 +74,8 @@ export function sseStream(
       const interval = setInterval(() => send("ping", { ts: Date.now() }), 25_000);
 
       cleanup = () => {
-        if (closed) return;
+        if (cleanedUp) return;
+        cleanedUp = true;
         closed = true;
         clearInterval(interval);
         unsubscribe();
