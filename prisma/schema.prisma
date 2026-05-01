@@ -130,10 +130,11 @@ model Order {
   customer      String?  // JSON: {name, phone, address}
   notes         String?
   subtotal      Float    @default(0)
-  taxTotal      Float    @default(0)
-  discount      Float    @default(0)
-  serviceCharge Float    @default(0)
-  total         Float    @default(0)
+  taxTotal       Float    @default(0)
+  discount       Float    @default(0)
+  serviceCharge  Float    @default(0)
+  packagingCharge Float   @default(0)
+  total          Float    @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   closedAt      DateTime?

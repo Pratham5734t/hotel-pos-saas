@@ -14,7 +14,7 @@ export type CartTotals = {
 
 export function computeTotals(
   lines: CartLine[],
-  opts: { discount?: number; serviceCharge?: number } = {},
+  opts: { discount?: number; serviceCharge?: number; packagingCharge?: number } = {},
 ): CartTotals {
   let subtotal = new Decimal(0);
   let taxTotal = new Decimal(0);
@@ -28,7 +28,12 @@ export function computeTotals(
 
   const discount = new Decimal(opts.discount ?? 0);
   const serviceCharge = new Decimal(opts.serviceCharge ?? 0);
-  const total = subtotal.plus(taxTotal).plus(serviceCharge).minus(discount);
+  const packagingCharge = new Decimal(opts.packagingCharge ?? 0);
+  const total = subtotal
+    .plus(taxTotal)
+    .plus(serviceCharge)
+    .plus(packagingCharge)
+    .minus(discount);
 
   return {
     subtotal: subtotal.toDecimalPlaces(2).toNumber(),

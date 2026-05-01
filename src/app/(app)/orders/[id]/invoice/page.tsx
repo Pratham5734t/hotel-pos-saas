@@ -97,6 +97,9 @@ export default async function InvoicePage({ params }: { params: { id: string } }
           {order.serviceCharge > 0 ? (
             <Row label="Service charge" value={formatMoney(order.serviceCharge)} />
           ) : null}
+          {order.packagingCharge > 0 ? (
+            <Row label="Packaging" value={formatMoney(order.packagingCharge)} />
+          ) : null}
           {order.discount > 0 ? (
             <Row label="Discount" value={`-${formatMoney(order.discount)}`} />
           ) : null}

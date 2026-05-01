@@ -96,7 +96,11 @@ export async function ingestProviderOrder(args: {
 
   const totals = computeTotals(
     lines.map((l) => ({ unitPrice: l.unitPrice, qty: l.qty, taxRate: l.taxRate })),
-    { discount: order.discount ?? 0, serviceCharge: order.serviceCharge ?? 0 },
+    {
+      discount: order.discount ?? 0,
+      serviceCharge: order.serviceCharge ?? 0,
+      packagingCharge: order.packagingCharge ?? 0,
+    },
   );
 
   // Allocate the order number and create the order in the SAME transaction so
@@ -123,6 +127,7 @@ export async function ingestProviderOrder(args: {
             total: totals.total,
             discount: order.discount ?? 0,
             serviceCharge: order.serviceCharge ?? 0,
+            packagingCharge: order.packagingCharge ?? 0,
             items: { create: lines },
           },
           include: { items: true },
