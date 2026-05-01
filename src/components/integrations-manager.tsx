@@ -115,8 +115,12 @@ export function IntegrationsManager({
       alert("Set up the Mock provider first.");
       return;
     }
+    // Use a relative URL: this fetch runs in the browser, so the request
+    // should always target the host the user is currently on, not the
+    // server-configured NEXT_PUBLIC_APP_URL (which may not be the same
+    // hostname behind a proxy / CDN / IP-based dev access).
     const res = await fetch(
-      `${baseUrl}/api/webhooks/MOCK?tenant=${tenantSlug}`,
+      `/api/webhooks/MOCK?tenant=${tenantSlug}`,
       {
         method: "POST",
         headers: {

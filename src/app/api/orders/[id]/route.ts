@@ -134,28 +134,61 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   publish(tenantId, "orders", "order:update", { id: params.id, number: result.number });
   publish(tenantId, "kot", "kot:update", { id: params.id, number: result.number });
 
-  // Push status to aggregator if it's an aggregator order and we just changed status.
+  // Push status to aggregator if it's an aggregator order and we just changed
+  // status. The order has already been persisted; isolate any failure here so
+  // a flaky aggregator (or a corrupt config row) doesn't surface as a 500 to
+  // the cashier — the client would otherwise retry and hit a 409.
   if (next && (result.channel === "ZOMATO" || result.channel === "SWIGGY" || result.channel === "MOCK")) {
-    const integration = await prisma.aggregatorIntegration.findUnique({
-      where: { tenantId_provider: { tenantId, provider: result.channel } },
-    });
-    const provider = getProvider(result.channel);
-    if (provider && integration && result.externalId) {
-      const map: Record<string, "ACCEPTED" | "FOOD_READY" | "DISPATCHED" | "DELIVERED" | "REJECTED"> = {
-        KOT_SENT: "ACCEPTED",
-        READY: "FOOD_READY",
-        SERVED: "DELIVERED",
-        PAID: "DELIVERED",
-        VOID: "REJECTED",
-      };
-      const status = map[next];
-      if (status) {
-        const cfg = integration.config ? JSON.parse(integration.config) : {};
-        const pushed = await provider.pushStatus({
-          externalId: result.externalId,
-          status,
-          config: cfg,
-        });
+    try {
+      const integration = await prisma.aggregatorIntegration.findUnique({
+        where: { tenantId_provider: { tenantId, provider: result.channel } },
+      });
+      const provider = getProvider(result.channel);
+      if (provider && integration && result.externalId) {
+        const map: Record<string, "ACCEPTED" | "FOOD_READY" | "DISPATCHED" | "DELIVERED" | "REJECTED"> = {
+          KOT_SENT: "ACCEPTED",
+          READY: "FOOD_READY",
+          SERVED: "DELIVERED",
+          PAID: "DELIVERED",
+          VOID: "REJECTED",
+        };
+        const status = map[next];
+        if (status) {
+          let cfg: unknown = {};
+          try {
+            cfg = integration.config ? JSON.parse(integration.config) : {};
+          } catch {
+            cfg = {};
+          }
+          const pushed = await provider.pushStatus({
+            externalId: result.externalId,
+            status,
+            config: cfg as Record<string, unknown>,
+          });
+          await prisma.integrationEvent.create({
+            data: {
+              tenantId,
+              provider: result.channel,
+              direction: "OUT",
+              kind: "STATUS_PUSH",
+              externalId: result.externalId,
+              payload: JSON.stringify({ status, orderId: params.id }),
+              ok: pushed.ok,
+              message: pushed.message,
+            },
+          });
+          publish(tenantId, "integration", "event", {
+            provider: result.channel,
+            status,
+          });
+        }
+      }
+    } catch (err) {
+      console.error("[aggregator-push] failed", err);
+      // Best-effort log to IntegrationEvent so operators can see the failure.
+      // Wrap the log itself in a try/catch — if the DB is unhealthy, we still
+      // want to return 200 because the order itself was already persisted.
+      try {
         await prisma.integrationEvent.create({
           data: {
             tenantId,
@@ -163,15 +196,16 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
             direction: "OUT",
             kind: "STATUS_PUSH",
             externalId: result.externalId,
-            payload: JSON.stringify({ status, orderId: params.id }),
-            ok: pushed.ok,
-            message: pushed.message,
+            payload: JSON.stringify({ orderId: params.id }),
+            ok: false,
+            message:
+              err instanceof Error
+                ? `push failed: ${err.message}`
+                : "push failed",
           },
         });
-        publish(tenantId, "integration", "event", {
-          provider: result.channel,
-          status,
-        });
+      } catch {
+        /* swallow */
       }
     }
   }
