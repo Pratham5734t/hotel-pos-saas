@@ -1,15 +1,19 @@
 // Hotel POS SaaS — Prisma schema
-// Multi-tenant: every domain row carries a tenantId. Use SQLite for local
-// development (zero-config) and switch the datasource to postgresql when
-// deploying.
+// Multi-tenant: every domain row carries a tenantId.
+//
+// Datasource: PostgreSQL. In production we use Supabase, which exposes two URLs:
+//   - DATABASE_URL  → transaction-pooler (port 6543) used at runtime
+//   - DIRECT_URL    → direct connection  (port 5432) used by migrations
+// Locally you can point both at the same Postgres instance.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ---------- Tenancy & users ----------

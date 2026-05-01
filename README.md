@@ -11,25 +11,47 @@ credentials.
 ## Stack
 
 - **Next.js 14** (App Router) + **TypeScript**
-- **Prisma 6** + **SQLite** for development (one-line switch to PostgreSQL)
+- **Prisma 6** + **PostgreSQL** (production-ready; Supabase recommended)
 - **NextAuth (credentials)** for multi-tenant auth
 - **Tailwind CSS** + minimal shadcn-style UI primitives
 - **Server-Sent Events** for live KOT and order updates
 
 ## Quickstart
 
+### 1. Provision a Postgres database
+
+The app expects a Postgres database (Supabase, Neon, Railway, RDS, or local Docker all work).
+
+**Recommended: Supabase free tier**
+1. Create a project at https://supabase.com/dashboard
+2. Go to **Project Settings → Database → Connection string → Prisma**
+3. Copy the **Transaction pooler** URL (port 6543) → this is your `DATABASE_URL`
+4. Copy the **Direct connection** URL (port 5432) → this is your `DIRECT_URL`
+5. Replace `[YOUR-PASSWORD]` in both with the DB password you set during project creation
+
+**Alternative: local Docker**
+```bash
+docker run --name hotelpos -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres:16
+# Then in .env, set both URLs to:
+# postgresql://postgres:postgres@localhost:5432/postgres
+```
+
+### 2. Run the app
+
 ```bash
 pnpm install
-cp .env.example .env
-pnpm db:push      # creates SQLite schema
-pnpm db:seed      # adds Grand Demo Hotel + 26-item menu + 8 tables
-pnpm dev          # http://localhost:3000
+cp .env.example .env       # then paste your DATABASE_URL + DIRECT_URL
+pnpm db:push               # apply schema
+pnpm db:seed               # adds Grand Demo Hotel + 26-item menu + 8 tables
+pnpm dev                   # http://localhost:3000
 ```
 
 Sign in with the seeded demo owner:
 
 ```
-owner@granddemohotel.com  /  demo1234
+Hotel ID: grand-demo-hotel
+Email:    owner@granddemohotel.com
+Password: demo1234
 ```
 
 Or click **Create your hotel** on the landing page to onboard a fresh tenant.
@@ -77,19 +99,6 @@ For real Zomato/Swiggy integration:
 
 You can demo the full lifecycle today using the **Mock** provider:
 **Integrations → Mock → Send test order**.
-
-## Switching to PostgreSQL
-
-Change [`prisma/schema.prisma`](prisma/schema.prisma):
-
-```prisma
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-```
-
-Set `DATABASE_URL=postgresql://…` and run `pnpm db:push` against the new DB.
 
 ## Scripts
 

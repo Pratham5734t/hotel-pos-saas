@@ -13,13 +13,32 @@ export const authOptions: NextAuthOptions = {
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
+        tenantSlug: { label: "Hotel", type: "text" },
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials.password) return null;
-        const user = await prisma.user.findFirst({
-          where: { email: credentials.email.toLowerCase() },
-          include: { tenant: true },
-        });
+        const email = credentials.email.toLowerCase().trim();
+        const slug = credentials.tenantSlug?.toLowerCase().trim();
+        // If a tenant slug is supplied, do an exact composite-key lookup.
+        // Otherwise require email to match exactly ONE user across all tenants —
+        // if multiple tenants share the email, the user must disambiguate.
+        let user;
+        if (slug) {
+          const tenant = await prisma.tenant.findUnique({ where: { slug } });
+          if (!tenant) return null;
+          user = await prisma.user.findUnique({
+            where: { tenantId_email: { tenantId: tenant.id, email } },
+            include: { tenant: true },
+          });
+        } else {
+          const matches = await prisma.user.findMany({
+            where: { email },
+            include: { tenant: true },
+            take: 2,
+          });
+          if (matches.length !== 1) return null;
+          user = matches[0];
+        }
         if (!user) return null;
         const ok = await bcrypt.compare(credentials.password, user.password);
         if (!ok) return null;

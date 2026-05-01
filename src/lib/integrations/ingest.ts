@@ -60,7 +60,7 @@ export async function ingestProviderOrder(args: {
       menuItemId: matched.id,
       name: it.name,
       qty: it.qty,
-      unitPrice: it.unitPrice || matched.price,
+      unitPrice: it.unitPrice ?? matched.price,
       taxRate: it.taxRate ?? matched.taxRate,
       note: it.note,
       modifiers: it.modifiers && it.modifiers.length ? JSON.stringify(it.modifiers) : null,

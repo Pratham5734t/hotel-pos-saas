@@ -63,7 +63,7 @@ export async function POST(req: Request) {
       },
       users: {
         create: {
-          email: data.email,
+          email: data.email.toLowerCase().trim(),
           name: data.ownerName,
           password: hash,
           role: "OWNER",

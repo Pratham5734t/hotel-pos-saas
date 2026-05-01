@@ -21,8 +21,9 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid input" }, { status: 400 });
   }
+  const email = parsed.data.email.toLowerCase().trim();
   const exists = await prisma.user.findFirst({
-    where: { tenantId, email: parsed.data.email },
+    where: { tenantId, email },
   });
   if (exists) {
     return NextResponse.json(
@@ -35,7 +36,7 @@ export async function POST(req: Request) {
     data: {
       tenantId,
       name: parsed.data.name,
-      email: parsed.data.email,
+      email,
       password: hash,
       role: parsed.data.role,
     },

@@ -15,6 +15,7 @@ export function LoginForm() {
   const params = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [tenantSlug, setTenantSlug] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,11 +26,14 @@ export function LoginForm() {
     const res = await signIn("credentials", {
       email: email.toLowerCase().trim(),
       password,
+      tenantSlug: tenantSlug.toLowerCase().trim(),
       redirect: false,
     });
     setSubmitting(false);
     if (res?.error) {
-      setError("Invalid email or password.");
+      setError(
+        "Sign-in failed. Check your email, password, and hotel ID — and make sure the hotel ID matches the one used at signup.",
+      );
       return;
     }
     router.push(params.get("callbackUrl") ?? "/dashboard");
@@ -48,6 +52,20 @@ export function LoginForm() {
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="tenantSlug">Hotel ID</Label>
+              <Input
+                id="tenantSlug"
+                type="text"
+                autoComplete="organization"
+                placeholder="e.g. grand-demo-hotel"
+                value={tenantSlug}
+                onChange={(e) => setTenantSlug(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Optional, but recommended if multiple hotels share the same email.
+              </p>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -83,6 +101,7 @@ export function LoginForm() {
           </div>
           <div className="mt-2 text-center text-xs text-muted-foreground">
             Demo:{" "}
+            <code className="rounded bg-muted px-1">grand-demo-hotel</code> /{" "}
             <code className="rounded bg-muted px-1">owner@granddemohotel.com</code> /{" "}
             <code className="rounded bg-muted px-1">demo1234</code>
           </div>

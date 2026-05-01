@@ -45,25 +45,34 @@ export function sseStream(
   channel: Channel,
   init?: () => Array<{ event: string; data: unknown }>,
 ): Response {
+  let cleanup: (() => void) | null = null;
   const stream = new ReadableStream({
     start(controller) {
       const enc = new TextEncoder();
+      let closed = false;
       const send = (event: string, data: unknown) => {
+        if (closed) return;
         const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-        controller.enqueue(enc.encode(payload));
+        try {
+          controller.enqueue(enc.encode(payload));
+        } catch {
+          // controller already closed (e.g. client disconnected mid-write)
+          closed = true;
+          cleanup?.();
+        }
       };
 
-      // initial snapshot
       if (init) {
         for (const m of init()) send(m.event, m.data);
       }
       send("ping", { ts: Date.now() });
 
       const unsubscribe = subscribe(tenantId, channel, send);
-
       const interval = setInterval(() => send("ping", { ts: Date.now() }), 25_000);
 
-      const close = () => {
+      cleanup = () => {
+        if (closed) return;
+        closed = true;
         clearInterval(interval);
         unsubscribe();
         try {
@@ -72,9 +81,9 @@ export function sseStream(
           /* already closed */
         }
       };
-
-      // @ts-expect-error -- not in lib.dom but supported at runtime in some envs
-      controller.signal?.addEventListener?.("abort", close);
+    },
+    cancel() {
+      cleanup?.();
     },
   });
 
