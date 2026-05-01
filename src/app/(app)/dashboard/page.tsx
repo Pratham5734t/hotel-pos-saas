@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { startOfDay } from "date-fns";
 import { prisma } from "@/lib/db";
 import { requireTenant } from "@/lib/tenant";
+import { startOfTenantDay } from "@/lib/datetime";
 import { formatMoney } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,11 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const { tenantId } = await requireTenant();
-  const since = startOfDay(new Date());
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { timezone: true },
+  });
+  const since = startOfTenantDay(new Date(), tenant?.timezone ?? "Asia/Kolkata");
 
   const [todayOrders, openOrders, menuCount, integrations] = await Promise.all([
     prisma.order.findMany({

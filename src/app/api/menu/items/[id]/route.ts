@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireTenant } from "@/lib/tenant";
+import { requireTenantApi } from "@/lib/tenant";
 import { canManageMenu } from "@/lib/roles";
 
 const Patch = z.object({
@@ -16,7 +16,9 @@ const Patch = z.object({
 });
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const { tenantId, role } = await requireTenant();
+  const auth = await requireTenantApi();
+  if (!auth.ok) return auth.response;
+  const { tenantId, role } = auth;
   if (!canManageMenu(role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -36,7 +38,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 }
 
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
-  const { tenantId, role } = await requireTenant();
+  const auth = await requireTenantApi();
+  if (!auth.ok) return auth.response;
+  const { tenantId, role } = auth;
   if (!canManageMenu(role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireTenant } from "@/lib/tenant";
+import { requireTenantApi } from "@/lib/tenant";
 import { canTakeOrders } from "@/lib/roles";
 import { computeTotals } from "@/lib/totals";
 import { nextOrderNumber } from "@/lib/order-numbers";
@@ -30,7 +30,9 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
-  const { tenantId, role } = await requireTenant();
+  const auth = await requireTenantApi();
+  if (!auth.ok) return auth.response;
+  const { tenantId, role } = auth;
   if (!canTakeOrders(role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

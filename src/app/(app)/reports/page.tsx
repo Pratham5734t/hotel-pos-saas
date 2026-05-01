@@ -1,6 +1,8 @@
-import { startOfDay, subDays, format } from "date-fns";
+import { subDays } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import { prisma } from "@/lib/db";
 import { requireTenant } from "@/lib/tenant";
+import { startOfTenantDay } from "@/lib/datetime";
 import { formatMoney } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +11,12 @@ export const dynamic = "force-dynamic";
 
 export default async function ReportsPage() {
   const { tenantId } = await requireTenant();
-  const today = startOfDay(new Date());
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { timezone: true },
+  });
+  const tz = tenant?.timezone ?? "Asia/Kolkata";
+  const today = startOfTenantDay(new Date(), tz);
   const sevenDaysAgo = subDays(today, 6);
 
   const [todayOrders, weekOrders, topItems] = await Promise.all([
@@ -45,10 +52,10 @@ export default async function ReportsPage() {
   const byDay = new Map<string, number>();
   for (let i = 0; i < 7; i++) {
     const d = subDays(today, 6 - i);
-    byDay.set(format(d, "yyyy-MM-dd"), 0);
+    byDay.set(formatInTimeZone(d, tz, "yyyy-MM-dd"), 0);
   }
   for (const o of weekOrders) {
-    const k = format(startOfDay(o.createdAt), "yyyy-MM-dd");
+    const k = formatInTimeZone(o.createdAt, tz, "yyyy-MM-dd");
     byDay.set(k, (byDay.get(k) ?? 0) + o.total);
   }
   const dayMax = Math.max(1, ...Array.from(byDay.values()));

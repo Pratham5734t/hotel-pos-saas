@@ -2,14 +2,16 @@ import { NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireTenant } from "@/lib/tenant";
+import { requireTenantApi } from "@/lib/tenant";
 import { canManageIntegrations } from "@/lib/roles";
 import { getProvider } from "@/lib/integrations/registry";
 
 const Body = z.object({ provider: z.enum(["ZOMATO", "SWIGGY", "MOCK"]) });
 
 export async function POST(req: Request) {
-  const { tenantId, role } = await requireTenant();
+  const auth = await requireTenantApi();
+  if (!auth.ok) return auth.response;
+  const { tenantId, role } = auth;
   if (!canManageIntegrations(role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

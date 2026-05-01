@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireTenant } from "@/lib/tenant";
+import { requireTenantApi } from "@/lib/tenant";
 
 const Patch = z.object({
   name: z.string().min(2).max(80).optional(),
@@ -10,7 +10,9 @@ const Patch = z.object({
 });
 
 export async function PATCH(req: Request) {
-  const { tenantId, role } = await requireTenant();
+  const auth = await requireTenantApi();
+  if (!auth.ok) return auth.response;
+  const { tenantId, role } = auth;
   if (role !== "OWNER") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

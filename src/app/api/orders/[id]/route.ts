@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireTenant } from "@/lib/tenant";
+import { requireTenantApi } from "@/lib/tenant";
 import { canTakeOrders } from "@/lib/roles";
 import { publish } from "@/lib/sse";
 import { getProvider } from "@/lib/integrations/registry";
@@ -13,7 +13,9 @@ const Patch = z.object({
 });
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const { tenantId } = await requireTenant();
+  const auth = await requireTenantApi();
+  if (!auth.ok) return auth.response;
+  const { tenantId } = auth;
   const order = await prisma.order.findFirst({
     where: { id: params.id, tenantId },
     include: { items: true, payments: true, table: true },
@@ -46,7 +48,9 @@ const PREDECESSORS: Record<string, ReadonlyArray<string>> = (() => {
 })();
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const { tenantId, role } = await requireTenant();
+  const auth = await requireTenantApi();
+  if (!auth.ok) return auth.response;
+  const { tenantId, role } = auth;
   if (!canTakeOrders(role) && role !== "KITCHEN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

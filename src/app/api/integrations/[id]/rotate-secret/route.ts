@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/db";
-import { requireTenant } from "@/lib/tenant";
+import { requireTenantApi } from "@/lib/tenant";
 import { canManageIntegrations } from "@/lib/roles";
 
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
-  const { tenantId, role } = await requireTenant();
+  const auth = await requireTenantApi();
+  if (!auth.ok) return auth.response;
+  const { tenantId, role } = auth;
   if (!canManageIntegrations(role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
